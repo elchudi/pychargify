@@ -176,6 +176,7 @@ class ChargifyBase(object):
         """
         Apply the values of the passed data to a new class of the current type
         """
+        print xml
         dom = minidom.parseString(self.fix_xml_encoding(xml))
         nodes = dom.getElementsByTagName(node_name)
         objs = []
@@ -205,13 +206,16 @@ class ChargifyBase(object):
         """
         headers = {
             "Authorization": "Basic %s" % self._get_auth_string(),
-            "User-Agent": "pyChargify",
+            "User-Agent": "LPI Italia",
             "Content-Type": 'text/xml'
         }
 
         r = httplib.HTTPSConnection(self.request_host)
+        print('url-- %s' % (self.request_host + url))
         r.request('GET', url, None, headers)
         response = r.getresponse()
+
+        print ("Response STATUS %s" % response.status)
 
         # Unauthorized Error
         if response.status == 401:
@@ -268,6 +272,8 @@ class ChargifyBase(object):
         http.putheader("Content-Type", 'text/xml; charset="UTF-8"')
         http.endheaders()
 
+        print('url %s' % (self.request_host + url))
+
         print('sending: %s' % data)
 
         http.send(data)
@@ -291,6 +297,7 @@ class ChargifyBase(object):
 
         # Generic Server Errors
         elif response.status in [405, 500]:
+            print response.read()
             raise ChargifyServerError()
 
         return response.read()
@@ -366,15 +373,47 @@ class ChargifyCustomer(ChargifyBase):
             self.__name__, 'customer')
 
     def getByReference(self, reference):
-        return self._applyS(self._get('/customers/lookup.xml?reference=' +
+        return self._applyS(self._get('/customers.xml?reference=%s' %
             str(reference)), self.__name__, 'customer')
 
     def getSubscriptions(self):
         obj = ChargifySubscription(self.api_key, self.sub_domain)
         return obj.getByCustomerId(self.id)
 
+    def getManagementInfo(self, id):
+        obj = self.getById(id)
+        return self._get('/portal/customers/%s/management_link.xml' % obj.id)   
+
     def save(self):
         return self._save('customers', 'customer')
+
+class ChargifyProductFamily(ChargifyBase):
+    """
+    Represents Chargify Products Family
+    @license    GNU General Public License
+    """
+    __name__ = 'ChargifyProductFamily'
+    __attribute_types__ = {}
+    __xmlnodename__ = 'product_family'
+
+    id = None
+    accounting_code = None
+    description = ''
+    name = ''
+    handle = ''
+
+    def __init__(self, apikey, subdomain, nodename=''):
+        super(ChargifyProductFamily, self).__init__(apikey, subdomain)
+        if nodename:
+            self.__xmlnodename__ = nodename
+
+    def getAll(self):
+        return self._applyA(self._get('/product_families.xml'),
+            self.__name__, 'product_family')
+    
+    def getById(self, id):
+        return self._applyS(self._get('/product_families/' + str(id) + '.xml'),
+            self.__name__, 'product_family')
 
 
 class ChargifyProduct(ChargifyBase):
@@ -411,6 +450,10 @@ class ChargifyProduct(ChargifyBase):
     def getByHandle(self, handle):
         return self._applyS(self._get('/products/handle/' + str(handle) +
             '.xml'), self.__name__, 'product')
+    
+    def getByFamilyId(self, family):
+        return self._applyA(self._get('/product_families/'+ family + 
+               '/products.xml'), self.__name__, 'product')
 
     def save(self):
         return self._save('products', 'product')
@@ -424,6 +467,64 @@ class ChargifyProduct(ChargifyBase):
 
     def getFormattedPrice(self):
         return "$%.2f" % (self.getPriceInDollars())
+
+class ChargifyMamagementURL(ChargifyBase):
+    """
+    Represents Chargify ManagementURL
+    @license    GNU General Public License
+    """
+    __name__ = 'ChargifyMamagementURL'
+    __attribute_types__ = {}
+    __xmlnodename__ = 'management_link'
+
+    url = ''
+    fetch_count = 0
+    created_at = ''
+    new_link_available_at = ''
+    expires_at = ''
+
+    def __init__(self, apikey, subdomain, nodename=''):
+        super(ChargifyMamagementURL, self).__init__(apikey, subdomain)
+        if nodename:
+            self.__xmlnodename__ = nodename
+
+    def get(self, customer_id):
+        return self._applyA(self._get('/portal/customers/%s/management_link.xml' % customer_id),
+            self.__name__, 'management_link')
+
+
+class ChargifyAllocations(ChargifyBase):
+    """
+    Represents Chargify Allocations
+    @license    GNU General Public License
+    """
+    __name__ = 'ChargifyAllocations'
+    __attribute_types__ = {}
+    __xmlnodename__ = 'allocation'
+
+    component_id = ''
+    subscription_id = 0
+    quantity = ''
+    previous_quantity = ''
+    memo = ''
+    proration_upgrade_scheme = ''
+    proration_downgrade_scheme = ''
+    timestamp = ''
+
+    def __init__(self, apikey, subdomain, nodename=''):
+        super(ChargifyAllocations, self).__init__(apikey, subdomain)
+        if nodename:
+            self.__xmlnodename__ = nodename
+
+    def get(self, subscription_id, component_id):
+        return self._applyA(self._get('/subscriptions/%s/components/%s/allocations.xml' % 
+                                      (subscription_id, component_id)),
+                            self.__name__, 'allocation')
+
+    def save(self):
+        return self._save('subscriptions/%s/components/%s/allocations' % 
+                            (self.subscription_id, self.component_id), 'allocation')
+
 
 
 class Usage(object):
@@ -614,7 +715,7 @@ class Chargify:
         to a file with JSON that defines those two, or we throw
         an error.'''
 
-        if self.api_key and self.sub_domain:
+        if apikey and subdomain:
             self.api_key = apikey
             self.sub_domain = subdomain
             return
@@ -634,6 +735,12 @@ class Chargify:
     def Product(self, nodename=''):
         return ChargifyProduct(self.api_key, self.sub_domain, nodename)
 
+    def ProductFamily(self, nodename=''):
+        return ChargifyProductFamily(self.api_key, self.sub_domain, nodename)
+
+    def ManagementURL(self, nodename=''): 
+        return ChargifyMamagementURL(self.api_key, self.sub_domain, nodename)        
+
     def Subscription(self, nodename=''):
         return ChargifySubscription(self.api_key, self.sub_domain, nodename)
 
@@ -642,3 +749,6 @@ class Chargify:
 
     def PostBack(self, postbackdata):
         return ChargifyPostBack(self.api_key, self.sub_domain, postbackdata)
+
+    def Allocations(self, nodename=''):
+        return ChargifyAllocations(self.api_key, self.sub_domain, nodename)
