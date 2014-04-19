@@ -37,7 +37,7 @@ See tests.py for more usage examples.
 Installation
 Place this library in your project and import the module
 
-    from pychargify.api import *
+    from pychargify.chargify import *
 
 Requirements
 This library has no special requirements
@@ -45,7 +45,7 @@ This library has no special requirements
 Usage
 Simply import this library before you use it:
 
-from pychargify.api import *
+from pychargify.chargify import *
 Now you'll have access to classes the interact with the Chargify API, such as:
 
 Chargify
