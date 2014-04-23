@@ -159,9 +159,7 @@ class ChargifyBase(object):
         Decodes and re-encodes with xml characters.
         Strips out whitespace "text nodes".
         """
-        return unicode(''.join([i.strip() for i in xml.split('\n')])).encode(
-            'CP1252', 'replace').decode('utf-8', 'ignore').encode(
-            'ascii', 'xmlcharrefreplace')
+        return ''.join([i.strip().decode('utf-8').encode('ascii', 'ignore') for i in xml.split('\n')])
 
     def _applyS(self, xml, obj_type, node_name):
         """
@@ -176,7 +174,6 @@ class ChargifyBase(object):
         """
         Apply the values of the passed data to a new class of the current type
         """
-        print xml
         dom = minidom.parseString(self.fix_xml_encoding(xml))
         nodes = dom.getElementsByTagName(node_name)
         objs = []
@@ -211,11 +208,8 @@ class ChargifyBase(object):
         }
 
         r = httplib.HTTPSConnection(self.request_host)
-        print('url-- %s' % (self.request_host + url))
         r.request('GET', url, None, headers)
         response = r.getresponse()
-
-        print ("Response STATUS %s" % response.status)
 
         # Unauthorized Error
         if response.status == 401:
@@ -272,9 +266,6 @@ class ChargifyBase(object):
         http.putheader("Content-Type", 'text/xml; charset="UTF-8"')
         http.endheaders()
 
-        print('url %s' % (self.request_host + url))
-
-        print('sending: %s' % data)
 
         http.send(data)
         response = http.getresponse()
@@ -297,7 +288,6 @@ class ChargifyBase(object):
 
         # Generic Server Errors
         elif response.status in [405, 500]:
-            print response.read()
             raise ChargifyServerError()
 
         return response.read()
@@ -507,12 +497,14 @@ class ChargifyAllocations(ChargifyBase):
     quantity = ''
     previous_quantity = ''
     memo = ''
+    updated_at = None
     proration_upgrade_scheme = ''
     proration_downgrade_scheme = ''
     timestamp = ''
 
     def __init__(self, apikey, subdomain, nodename=''):
         super(ChargifyAllocations, self).__init__(apikey, subdomain)
+        self.__ignore__.extend(['component_id', 'subscription_id','updated_at'])
         if nodename:
             self.__xmlnodename__ = nodename
 
@@ -525,6 +517,31 @@ class ChargifyAllocations(ChargifyBase):
         return self._save('subscriptions/%s/components/%s/allocations' % 
                             (self.subscription_id, self.component_id), 'allocation')
 
+
+class ChargifyMigrations(ChargifyBase):
+    """
+    Represents Chargify Migrations
+    @license    GNU General Public License
+    """
+    __name__ = 'ChargifyMigrations'
+    __attribute_types__ = {}
+    __xmlnodename__ = 'migration'
+
+
+    updated_at = None
+    subscription_id = 0
+    include_trial = 0
+    product_handle = ''
+
+    def __init__(self, apikey, subdomain, nodename=''):
+        super(ChargifyMigrations, self).__init__(apikey, subdomain)
+        self.__ignore__.extend(['subscription_id', 'updated_at'])
+
+        if nodename:
+            self.__xmlnodename__ = nodename
+
+    def save(self):
+        return self._save('subscriptions/%s/migrations' % (self.subscription_id), 'migration')
 
 
 class Usage(object):
@@ -752,3 +769,7 @@ class Chargify:
 
     def Allocations(self, nodename=''):
         return ChargifyAllocations(self.api_key, self.sub_domain, nodename)
+
+    def Migrations(self, nodename=''):
+        return ChargifyMigrations(self.api_key, self.sub_domain, nodename)
+
