@@ -504,7 +504,7 @@ class ChargifyAllocations(ChargifyBase):
 
     def __init__(self, apikey, subdomain, nodename=''):
         super(ChargifyAllocations, self).__init__(apikey, subdomain)
-        self.__ignore__.extend(['component_id', 'subscription_id','updated_at'])
+        self.__ignore__.extend(['component_id', 'subscription_id','updated_at','previous_quantity','timestamp'])
         if nodename:
             self.__xmlnodename__ = nodename
 
