@@ -138,10 +138,18 @@ class ChargifyBase(object):
         for childnodes in node.childNodes:
             if childnodes.nodeType == 1 and not childnodes.nodeName == '':
                 if childnodes.nodeName in self.__attribute_types__:
-                    obj.__setattr__(childnodes.nodeName,
-                        self._applyS(childnodes.toxml(),
-                        self.__attribute_types__[childnodes.nodeName],
-                            childnodes.nodeName))
+                    if childnodes.attributes["type"].nodeValue == 'array':
+                        obj.__setattr__(childnodes.nodeName, [])
+                        for child in childnodes.childNodes:
+                            getattr(obj, childnodes.nodeName).append(
+                                  self._applyS(child.toxml(),
+                                  self.__attribute_types__[childnodes.nodeName],
+                                      childnodes.nodeName[:-1]))
+                    else:
+                        obj.__setattr__(childnodes.nodeName,
+                            self._applyS(childnodes.toxml(),
+                            self.__attribute_types__[childnodes.nodeName],
+                                childnodes.nodeName))
                 else:
                     node_value = self.__get_xml_value(childnodes.childNodes)
                     if "type" in  childnodes.attributes.keys():
@@ -150,6 +158,7 @@ class ChargifyBase(object):
                             if node_type.nodeValue == 'datetime':
                                 node_value = datetime.datetime.fromtimestamp(
                                     iso8601.parse(node_value))
+
                     obj.__setattr__(childnodes.nodeName, node_value)
         return obj
 
@@ -158,7 +167,8 @@ class ChargifyBase(object):
         Chargify encodes non-ascii characters in CP1252.
         Decodes and re-encodes with xml characters.
         Strips out whitespace "text nodes".
-        """
+        """ 
+        
         return ''.join([i.strip().decode('utf-8').encode('ascii', 'ignore') for i in xml.split('\n')])
 
     def _applyS(self, xml, obj_type, node_name):
@@ -208,8 +218,11 @@ class ChargifyBase(object):
         }
 
         r = httplib.HTTPSConnection(self.request_host)
+        print('url-- %s' % (self.request_host + url))
         r.request('GET', url, None, headers)
         response = r.getresponse()
+
+        print ("Response STATUS %s" % response.status)
 
         # Unauthorized Error
         if response.status == 401:
@@ -266,6 +279,9 @@ class ChargifyBase(object):
         http.putheader("Content-Type", 'text/xml; charset="UTF-8"')
         http.endheaders()
 
+        print('url %s' % (self.request_host + url))
+
+        print('sending: %s' % data)
 
         http.send(data)
         response = http.getresponse()
@@ -288,6 +304,7 @@ class ChargifyBase(object):
 
         # Generic Server Errors
         elif response.status in [405, 500]:
+            print response.read()
             raise ChargifyServerError()
 
         return response.read()
@@ -504,7 +521,7 @@ class ChargifyAllocations(ChargifyBase):
 
     def __init__(self, apikey, subdomain, nodename=''):
         super(ChargifyAllocations, self).__init__(apikey, subdomain)
-        self.__ignore__.extend(['component_id', 'subscription_id','updated_at','previous_quantity','timestamp'])
+        self.__ignore__.extend(['component_id', 'subscription_id','updated_at','timestamp', 'previous_quantity', 'updated_at'])
         if nodename:
             self.__xmlnodename__ = nodename
 
@@ -516,7 +533,6 @@ class ChargifyAllocations(ChargifyBase):
     def save(self):
         return self._save('subscriptions/%s/components/%s/allocations' % 
                             (self.subscription_id, self.component_id), 'allocation')
-
 
 class ChargifyMigrations(ChargifyBase):
     """
@@ -532,16 +548,68 @@ class ChargifyMigrations(ChargifyBase):
     subscription_id = 0
     include_trial = 0
     product_handle = ''
+    prorated_adjustment_in_cents = 0
+    charge_in_cents = 0
+    payment_due_in_cents = 0
+    credit_applied_in_cents = 0
 
     def __init__(self, apikey, subdomain, nodename=''):
         super(ChargifyMigrations, self).__init__(apikey, subdomain)
-        self.__ignore__.extend(['subscription_id', 'updated_at'])
+        self.__ignore__.extend(['subscription_id', 'updated_at', 'prorated_adjustment_in_cents', 
+                                'charge_in_cents', 'payment_due_in_cents', 'credit_applied_in_cents'])
 
         if nodename:
             self.__xmlnodename__ = nodename
 
+    def preview(self):
+        return self._save('subscriptions/%s/migrations/preview' % (self.subscription_id), 'migration')[1]
+
     def save(self):
         return self._save('subscriptions/%s/migrations' % (self.subscription_id), 'migration')
+
+class ChargifyPrice(ChargifyBase):
+    """
+    Represents Chargify COmponent Price
+    @license    GNU General Public License
+    """
+    __name__ = 'ChargifyPrice'
+    __attribute_types__ = {}
+    __xmlnodename__ = 'price'
+    
+    starting_quantity = 0
+    ending_quantity = 0
+    unit_price = 0
+
+class ChargifyComponents(ChargifyBase):
+    """
+    Represents Chargify Components
+    @license    GNU General Public License
+    """
+    __name__ = 'ChargifyComponents'
+    __attribute_types__ = {'prices': 'ChargifyPrice'}
+    __xmlnodename__ = 'component'
+
+
+    name = ''
+    unit_name = ''
+    unit_price = ''
+    pricing_scheme = ''
+    product_family = ''
+    kind = ''
+    price_per_unit_in_cents = 0
+    prices = []
+    archived = False
+    include_archived = False
+
+    def __init__(self, apikey, subdomain, nodename=''):
+        super(ChargifyComponents, self).__init__(apikey, subdomain)
+        if nodename:
+            self.__xmlnodename__ = nodename
+
+    def getDescriptions(self):
+        self.__ignore__.extend(['name', 'unit_name','pricing_scheme', 'product_family', 'kind',
+                                'price_per_unit_in_cents', 'archived', 'prices'])
+        return self._applyA(self._get('/product_families/%s/components.xml' % (self.product_family)), self.__name__, 'component')
 
 
 class Usage(object):
@@ -773,3 +841,5 @@ class Chargify:
     def Migrations(self, nodename=''):
         return ChargifyMigrations(self.api_key, self.sub_domain, nodename)
 
+    def Components(self, nodename=''):
+        return ChargifyComponents(self.api_key, self.sub_domain, nodename)
